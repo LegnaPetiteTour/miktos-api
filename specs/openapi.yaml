@@ -1,0 +1,436 @@
+openapi: 3.0.3
+info:
+  title: Miktós API
+  description: |
+    Miktós API provides a unified interface to interact with multiple AI models 
+    (OpenAI, Anthropic, Google) through a single API. The platform intelligently 
+    routes requests, handles streaming responses, and provides a consistent interface 
+    regardless of the underlying model provider.
+  version: 1.0.0
+  license:
+    name: GNU Affero General Public License v3.0
+    url: https://www.gnu.org/licenses/agpl-3.0.en.html
+servers:
+  - url: https://api.miktos.ai/v1
+    description: Production server
+  - url: https://api-staging.miktos.ai/v1
+    description: Staging server
+
+tags:
+  - name: Authentication
+    description: User authentication endpoints
+  - name: Projects
+    description: Project management endpoints
+  - name: Generation
+    description: Text generation endpoints
+  - name: Messages
+    description: Message management endpoints
+
+paths:
+  /auth/token:
+    post:
+      summary: Generate authentication token
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+                password:
+                  type: string
+                  format: password
+                  example: Password123!
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+                  token_type:
+                    type: string
+                    example: bearer
+                  expires_at:
+                    type: string
+                    format: date-time
+                    example: 2025-05-05T19:42:19Z
+        '401':
+          description: Invalid credentials
+  
+  /projects:
+    get:
+      summary: List all projects
+      tags:
+        - Projects
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: skip
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+      responses:
+        '200':
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Project'
+        '401':
+          description: Unauthorized
+    post:
+      summary: Create a new project
+      tags:
+        - Projects
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectCreate'
+      responses:
+        '201':
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '401':
+          description: Unauthorized
+
+  /projects/{projectId}:
+    get:
+      summary: Get project details
+      tags:
+        - Projects
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Project details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '404':
+          description: Project not found
+
+  /projects/{projectId}/messages:
+    get:
+      summary: Get messages for a project
+      tags:
+        - Messages
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: skip
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+      responses:
+        '200':
+          description: List of messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Message'
+        '404':
+          description: Project not found
+    post:
+      summary: Create a new message
+      tags:
+        - Messages
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessageCreate'
+      responses:
+        '201':
+          description: Message created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '404':
+          description: Project not found
+
+  /generate:
+    post:
+      summary: Generate text
+      tags:
+        - Generation
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerationRequest'
+      responses:
+        '200':
+          description: Generated text
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerationResponse'
+            text/event-stream:
+              schema:
+                type: string
+                description: Stream of events for streamed responses
+        '400':
+          description: Invalid request
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  
+  schemas:
+    Project:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        context_notes:
+          type: string
+          nullable: true
+        repository_url:
+          type: string
+          nullable: true
+        owner_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+        context_status:
+          type: string
+          enum:
+            - NONE
+            - PENDING
+            - PROCESSING
+            - READY
+            - ERROR
+      required:
+        - id
+        - name
+        - owner_id
+        - created_at
+        - context_status
+    
+    ProjectCreate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        context_notes:
+          type: string
+          nullable: true
+        repository_url:
+          type: string
+          nullable: true
+      required:
+        - name
+    
+    Message:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum:
+            - user
+            - assistant
+            - system
+        content:
+          type: string
+        model:
+          type: string
+          nullable: true
+        message_metadata:
+          type: object
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - project_id
+        - user_id
+        - role
+        - content
+        - created_at
+    
+    MessageCreate:
+      type: object
+      properties:
+        role:
+          type: string
+          enum:
+            - user
+            - assistant
+            - system
+          default: user
+        content:
+          type: string
+        model:
+          type: string
+          nullable: true
+      required:
+        - content
+    
+    GenerationRequest:
+      type: object
+      properties:
+        project_id:
+          type: string
+          format: uuid
+        model:
+          type: string
+          description: Model identifier (e.g., openai/gpt-4o, anthropic/claude-3-opus)
+        prompt:
+          type: string
+          description: The prompt to generate text from
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessageItem'
+          description: List of messages for chat-based models
+        temperature:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 2
+          default: 0.7
+        max_tokens:
+          type: integer
+          minimum: 1
+          maximum: 4096
+          default: 1024
+        stream:
+          type: boolean
+          default: false
+      required:
+        - model
+    
+    MessageItem:
+      type: object
+      properties:
+        role:
+          type: string
+          enum:
+            - user
+            - assistant
+            - system
+        content:
+          type: string
+      required:
+        - role
+        - content
+    
+    GenerationResponse:
+      type: object
+      properties:
+        content:
+          type: string
+        error:
+          type: boolean
+        error_message:
+          type: string
+          nullable: true
+        finish_reason:
+          type: string
+          enum:
+            - stop
+            - length
+            - content_filter
+            - null
+        model:
+          type: string
+          description: The model that was used for generation
+      required:
+        - content
+        - error
